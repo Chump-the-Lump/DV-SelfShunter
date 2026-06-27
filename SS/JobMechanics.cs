@@ -215,4 +215,11 @@ public class JobMechanics
             c.TrainCar().UpdateJobIdOnCarPlates("");
         }
     }
+    
+    [HarmonyPatch(typeof(Job), nameof(Job.ExpireJob))]
+    [HarmonyPrefix]
+    public static bool ExpireJob_Patch(Job __instance)
+    {
+        return __instance.jobType != JobType.ComplexTransport;
+    }
 }

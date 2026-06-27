@@ -17,17 +17,33 @@ public static class SelfShunt
 {
     [HarmonyPatch(typeof(JobChainController), "OnJobGenerated")]
     [HarmonyPostfix]
-    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob,
-        JobChainController __instance)
+    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob, JobChainController __instance)
     {
-        if(generatedJob.jobType ==  JobType.ComplexTransport) return;
+        if(!MultiplayerShim.IsHost)return;
+        if (generatedJob.jobType == JobType.ComplexTransport) return;
         generatedJob.ExpireJob();
         foreach (Car car in __instance.carsForJobChain)
         {
             car.UnloadCargo(car.LoadedCargoAmount, car.CurrentCargoTypeInCar);
         }
+    }
 
-        if (jobDefinition.logicStation.availableJobs.Count < jobDefinition.logicStation.yard.GetAllYardTracks().Count()*2) CreateDirectJobChain(jobDefinition.logicStation);
+    [HarmonyPatch(typeof(StationJobGenerationRange), nameof(StationJobGenerationRange.IsPlayerInJobGenerationZone))]
+    [HarmonyPostfix]
+    private static void OnStationLoad(StationJobGenerationRange __instance, ref bool __result)
+    {
+        if(!MultiplayerShim.IsHost)return;
+        if(__result)UpdateJobSpawns(__instance.GetComponent<StationController>().logicStation);
+    }
+    
+    private static void UpdateJobSpawns(Station station)
+    {
+        //Debug.Log("Station " + station.ID + " has " + station.availableJobs.Count + " jobs for " + station.yard.GetAllYardTracks().Count() + " tracks."+JobSpawningBusy);
+        if (station.availableJobs.Count < station.yard.GetAllYardTracks().Count() * 2)
+        {
+            CreateDirectJobChain(station);
+
+        }
     }
 
     [HarmonyPatch(typeof(BookletCreator_JobOverview), nameof(BookletCreator_JobOverview.GetJobOverviewTemplateData))]
@@ -186,7 +202,7 @@ public static class SelfShunt
         Station endStation = endStationController.logicStation;
 
         float distance = JobPaymentCalculator.GetDistanceBetweenStations(startStationController, endStationController);
-        float distancePriceScale = distance * 0.0001f;
+        float distancePriceScale = distance * 0.00005f;
         
         float timeScale = UnityEngine.Random.Range(0f, 2f);
         if (timeScale < 0.5f) timeScale = -1f;
@@ -253,22 +269,29 @@ public static class SelfShunt
         
         Job newJob = new Job(tasks, JobType.ComplexTransport, timeLimit, initialWage, chainData, forcedJobId, requiredLicenses);
 
-        StationController.GetStationByYardID(chainData.chainOriginYardId).logicStation.AddJobToStation(newJob);
+        Station spawnAt = StationController.GetStationByYardID(chainData.chainOriginYardId).logicStation;
+        spawnAt.AddJobToStation(newJob);
         
         return newJob;
     }
 
     private static CargoType PickCargoAndDestination(StationController startStationController, out WarehouseMachine loadMachine, out StationController endStationController, out WarehouseMachine unloadMachine)
     {
+        int i = 0;
+        while (i<100)
+        {
+
             List<CargoGroup> cargoTypes = startStationController.proceduralJobsRuleset.outputCargoGroups;
+
             if (cargoTypes.Count == 0)
             {
+                Debug.LogError("No cargo exists at station "+startStationController.logicStation.ID+"! This should not happen and will break things!");
                 loadMachine = null!;
                 endStationController = null!;
                 unloadMachine = null!;
                 return CargoType.None;
             }
-            
+
             int cargoIndex = rand.Next(0, cargoTypes.Count);
             CargoGroup selectedCargoGroup = cargoTypes[cargoIndex];
 
@@ -276,12 +299,22 @@ public static class SelfShunt
             endStationController = selectedCargoGroup.stations[stationIndex];
 
 
-            loadMachine = startStationController.logicStation.yard.GetWarehouseMachinesThatSupportCargoTypes(selectedCargoGroup.cargoTypes)[0];
-            unloadMachine = endStationController.logicStation.yard.GetWarehouseMachinesThatSupportCargoTypes(selectedCargoGroup.cargoTypes)[0];
-            
+            loadMachine =
+                startStationController.logicStation.yard.GetWarehouseMachinesThatSupportCargoTypes(selectedCargoGroup
+                    .cargoTypes)[0];
+            unloadMachine =
+                endStationController.logicStation.yard.GetWarehouseMachinesThatSupportCargoTypes(selectedCargoGroup
+                    .cargoTypes)[0];
+
             CargoType selectedCargo = selectedCargoGroup.cargoTypes[rand.Next(0, selectedCargoGroup.cargoTypes.Count)];
-        
-            return selectedCargo;
+
+            if (selectedCargo.ToV2().loadableCarTypes.Length != 0)return selectedCargo;
+        }
+        Debug.LogError("No cars exist for any cargo at station "+startStationController.logicStation.ID+"! This should not happen and will break things!");
+        loadMachine = null!;
+        endStationController = null!;
+        unloadMachine = null!;
+        return CargoType.None;
     }
 
 }

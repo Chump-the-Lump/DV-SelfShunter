@@ -12,7 +12,9 @@ public class Main
         SelfShuntModEntry = entry;
         var harmony = new Harmony(entry.Info.Id);
         harmony.PatchAll();
-            
+        
+        MultiplayerShim.Initialize(entry);
+        
         return true;
     }
 }
