@@ -1,0 +1,17 @@
+# Ignore everything by default
+*
+
+# Do not ignore directories, otherwise Git won't track files inside them
+!*/
+
+# Allow C# and JSON files
+!*.cs
+!*.json
+!*.txt
+
+# Optional: Keep Git tracking the .gitignore file itself
+!.gitignore
+*/obj/*
+*/bin/*
+*/.git/*
+*/.idea/*

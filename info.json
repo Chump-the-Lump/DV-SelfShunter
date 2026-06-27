@@ -1,0 +1,11 @@
+{
+  "Id": "DoubleTrack",
+  "DisplayName": "Double Track",
+  "Author": "Chump_the_Lump",
+  "Repository":"https://raw.githubusercontent.com/Chump-the-Lump/DV-DoubleTrack/refs/heads/main/repository.json",
+  "Version": "1.4.3",
+  "AssemblyName": "DoubleTrack.dll",
+  "EntryMethod": "DoubleTrack.TrackPlacerEntry.Load",
+  "LoadAfter": ["Multiplayer"],
+  "MultiplayerCompatibility": "All"
+  }
