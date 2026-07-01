@@ -10,6 +10,7 @@ using DV.Utils;
 using HarmonyLib;
 using Ludiq;
 using UnityEngine;
+using UnityModManagerNet;
 using Object = System.Object;
 using Task = DV.Logic.Job.Task;
 
@@ -216,10 +217,12 @@ public class JobMechanics
         }
     }
     
+    
     [HarmonyPatch(typeof(Job), nameof(Job.ExpireJob))]
     [HarmonyPrefix]
     public static bool ExpireJob_Patch(Job __instance)
     {
-        return __instance.jobType != JobType.ComplexTransport;
+        if (__instance.jobType != JobType.ComplexTransport) return true;
+        return UnityModManager.FindMod("SelfShunt")?.Active != true;
     }
 }

@@ -5,6 +5,7 @@ using DV.Logic.Job;
 using DV.RenderTextureSystem.BookletRender;
 using DV.ThingTypes;
 using DV.ThingTypes.TransitionHelpers;
+using DV.Utils;
 using HarmonyLib;
 using UnityEngine;
 using Random = System.Random;
@@ -15,11 +16,14 @@ namespace SelfShunt;
 [HarmonyPatch]
 public static class SelfShunt
 {
+    private static readonly Color DIRECT_HAUL_COLOR = new Color(1, 0.5f, 0.2f);
+    private const string DIRECT_HAUL_NAME = "Direct Haul";
+    
     [HarmonyPatch(typeof(JobChainController), "OnJobGenerated")]
     [HarmonyPostfix]
-    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob, JobChainController __instance)
+    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob,
+        JobChainController __instance)
     {
-        if(!MultiplayerShim.IsHost)return;
         if (generatedJob.jobType == JobType.ComplexTransport) return;
         generatedJob.ExpireJob();
         foreach (Car car in __instance.carsForJobChain)
@@ -32,10 +36,10 @@ public static class SelfShunt
     [HarmonyPostfix]
     private static void OnStationLoad(StationJobGenerationRange __instance, ref bool __result)
     {
-        if(!MultiplayerShim.IsHost)return;
-        if(__result)UpdateJobSpawns(__instance.GetComponent<StationController>().logicStation);
+        if (!MultiplayerShim.IsHost) return;
+        if (__result) UpdateJobSpawns(__instance.GetComponent<StationController>().logicStation);
     }
-    
+
     private static void UpdateJobSpawns(Station station)
     {
         //Debug.Log("Station " + station.ID + " has " + station.availableJobs.Count + " jobs for " + station.yard.GetAllYardTracks().Count() + " tracks."+JobSpawningBusy);
@@ -45,13 +49,85 @@ public static class SelfShunt
 
         }
     }
+    
+    [HarmonyPatch(typeof(BookletCreator_JobMissingLicense), "GetMissingLicenseTemplateData")]
+    [HarmonyPrefix]
+    public static bool GetJobExpiredTemplateData_Prefix(Job_data job, bool isJobLicenseMissing, ref List<TemplatePaperData> __result)
+    {
+        if (job.type != JobType.ComplexTransport) return true;
+        
+    
+        string jobType = DIRECT_HAUL_NAME;
+        string jobId = job.ID;
+        Color jobColor = DIRECT_HAUL_COLOR;
+        
+        __result = !isJobLicenseMissing ? GetConcurrentJobsMissingLicenseTemplateData() : GetJobMissingLicenseTemplateData();
+
+        return false;
+        
+        List<TemplatePaperData> GetJobMissingLicenseTemplateData()
+        {
+          List<MissingLicensesPageTemplatePaperData.LicensePrintData> licensesData = new List<MissingLicensesPageTemplatePaperData.LicensePrintData>();
+          DV.ThingTypes.JobLicenses requiredLicenses = job.requiredLicenses;
+          LicenseManager instance = SingletonBehaviour<LicenseManager>.Instance;
+          HashSet<JobLicenseType_v2> missingLicensesForJob = instance.GetMissingLicensesForJob((IEnumerable<JobLicenseType_v2>) JobLicenseType_v2.ToV2List(requiredLicenses));
+          HashSet<JobLicenseType_v2> acquiredLicensesForJob = instance.GetAcquiredLicensesForJob((IEnumerable<JobLicenseType_v2>) JobLicenseType_v2.ToV2List(requiredLicenses));
+          foreach (JobLicenseType_v2 jobLicenseTypeV2 in Globals.G.Types.jobLicenses.Where<JobLicenseType_v2>((Func<JobLicenseType_v2, bool>) (l => l.v1 != 0)))
+          {
+            bool isAcquired = acquiredLicensesForJob.Contains(jobLicenseTypeV2);
+            bool flag = missingLicensesForJob.Contains(jobLicenseTypeV2);
+            if (isAcquired | flag)
+              licensesData.Add(new MissingLicensesPageTemplatePaperData.LicensePrintData(LocalizationAPI.L(jobLicenseTypeV2.localizationKey), jobLicenseTypeV2.icon, isAcquired));
+          }
+          return new List<TemplatePaperData>()
+          {
+            (TemplatePaperData) new MissingLicensesPageTemplatePaperData(jobType, "", jobId, jobColor, licensesData)
+          };
+        }
+
+        List<TemplatePaperData> GetConcurrentJobsMissingLicenseTemplateData()
+        {
+          bool isAcquired = false;
+          GeneralLicenseType_v2 generalLicenseTypeV2 = SingletonBehaviour<LicenseManager>.Instance.GetMissingConcurrentJobsLicense();
+          if ((UnityEngine.Object) generalLicenseTypeV2 == (UnityEngine.Object) null)
+          {
+            Debug.LogError((object) "Printing missing concurrent license, but license is not missing. Something is wrong");
+            generalLicenseTypeV2 = GeneralLicenseType.ConcurrentJobs2.ToV2();
+            isAcquired = true;
+          }
+          List<MissingLicensesPageTemplatePaperData.LicensePrintData> licensesData = new List<MissingLicensesPageTemplatePaperData.LicensePrintData>()
+          {
+            new MissingLicensesPageTemplatePaperData.LicensePrintData(LocalizationAPI.L(generalLicenseTypeV2.localizationKey), generalLicenseTypeV2.icon, isAcquired)
+          };
+          return new List<TemplatePaperData>()
+          {
+            (TemplatePaperData) new MissingLicensesPageTemplatePaperData(jobType, "", jobId, jobColor, licensesData)
+          };
+        }
+    }
+    
+
+    [HarmonyPatch(typeof(BookletCreator_JobExpiredReport), "GetJobExpiredTemplateData")]
+    [HarmonyPrefix]
+    public static bool GetJobExpiredTemplateData_Prefix(Job_data job, ref List<TemplatePaperData> __result)
+    {
+        if (job.type != JobType.ComplexTransport) return true;
+        
+
+        __result = new List<TemplatePaperData>()
+        {
+            (TemplatePaperData) new JobExpiredTemplatePaperData(DIRECT_HAUL_NAME, "", job.ID, DIRECT_HAUL_COLOR)
+        };
+        
+        return false;
+    }
 
     [HarmonyPatch(typeof(BookletCreator_JobOverview), nameof(BookletCreator_JobOverview.GetJobOverviewTemplateData))]
     [HarmonyPrefix]
     public static bool GetJobOverviewTemplateData_Prefix(Job_data job, ref List<TemplatePaperData> __result)
     {
         if (job.type != JobType.ComplexTransport) return true;
-
+        
         List<Car_data> allCars = StaticDirectJobDefinition.jobDefinitions[job.ID].displayCars;
         List<CargoType> cargoTypePerCar = new List<CargoType>();
         foreach (Car_data car in allCars)
@@ -65,10 +141,10 @@ public static class SelfShunt
         GetStats(job, allCars.Count, out string timeLimit, out string value, out string mass, out string length);
 
         TemplatePaperData data = new FrontPageTemplatePaperData(
-            "Direct Haul",
+            DIRECT_HAUL_NAME,
             "",
             job.ID,
-            new Color(1, 0.5f, 0.2f),
+            DIRECT_HAUL_COLOR,
             "Transport "+allCars.Count+" loads of " +cargoName,
             job.requiredLicenses,
             cargoTypePerCar.Distinct<CargoType>().ToList(),
@@ -126,10 +202,10 @@ public static class SelfShunt
         GetStats(job, allCars.Count, out string timeLimit, out string value, out string mass, out string length);
 
         FrontPageTemplatePaperData frontPage = new FrontPageTemplatePaperData(
-            "Direct Haul",
+            DIRECT_HAUL_NAME,
             "",
             job.ID,
-            new Color(1, 0.5f, 0.2f),
+            DIRECT_HAUL_COLOR,
             "Transport "+allCars.Count+" loads of " +cargoName,
             job.requiredLicenses,
             cargoTypePerCar.Distinct<CargoType>().ToList(),
@@ -195,6 +271,7 @@ public static class SelfShunt
 
     public static void CreateDirectJobChain(Station startStation)
     {
+        if (!MultiplayerShim.IsHost) return;
         StationController startStationController = StationController.GetStationByYardID(startStation.ID);
         CargoType cargoType = PickCargoAndDestination(startStationController, out WarehouseMachine loadMachine, out StationController endStationController, out WarehouseMachine unloadMachine);
             
@@ -202,12 +279,6 @@ public static class SelfShunt
         Station endStation = endStationController.logicStation;
 
         float distance = JobPaymentCalculator.GetDistanceBetweenStations(startStationController, endStationController);
-        float distancePriceScale = distance * 0.00005f;
-        
-        float timeScale = UnityEngine.Random.Range(0f, 2f);
-        if (timeScale < 0.5f) timeScale = -1f;
-        
-        float timeLimit = (int)((600f + (distance/3f)) * timeScale);
         
         
         CargoType_v2 v2Cargo = Globals.G.Types.CargoType_to_v2[cargoType];
@@ -226,20 +297,20 @@ public static class SelfShunt
             if(rand.Next(0,3) ==0 || i > 10) break;
             i++;
         }
+
+        float timeScale = UnityEngine.Random.Range(0f, 2f);
+
+        float price = CalculatePayment(v2Cargo, distance, carData.Count);
         
-        float price = distancePriceScale*carData.Count*((v2Cargo.fullDamagePrice + v2Cargo.environmentDamagePrice + v2Cargo.massPerUnit + v2Cargo.sensitivityPaymentModifier)/10f);
+        if (timeScale < 0.5f) timeScale = -1f;
+        else price *= (timeScale+0.5f)/4f + 0.75f;
+        
+        float timeLimit = (int)((600f + (distance/3f)) * timeScale);
+        timeLimit *= Globals.G.GameParams.JobBonusTimeLimitModifier;
         
         StationsChainData chainData = new StationsChainData(startStation.ID,endStation.ID);
 
-        JobLicenses licenses = 0;
-        
-        foreach (JobLicenseType_v2 v2 in v2Cargo.requiredJobLicenses)
-        {
-            licenses += (int)v2.v1;
-        }
-        if (carData.Count <= 2) licenses = ((int)JobLicenses.Shunting + licenses);
-        else if (carData.Count > 5) licenses = ((int)JobLicenses.TrainLength2 + licenses);
-        else if (carData.Count > 10) licenses = ((int)JobLicenses.TrainLength1 + licenses);
+        JobLicenses licenses = GetLicenses(v2Cargo, carData.Count);
         
         GameObject jobChainGO = new GameObject($"ChainJob[Direct Haul]: {startStationController.logicStation.ID} - {endStationController.logicStation.ID}");
         StaticDirectJobDefinition jobDefinition = jobChainGO.AddComponent<StaticDirectJobDefinition>();
@@ -250,6 +321,7 @@ public static class SelfShunt
         jobDefinition.loadMachine = loadMachine;
         jobDefinition.unloadMachine = unloadMachine;
         jobDefinition.transportedCargo = cargoType;
+        jobDefinition.ForceJobId(JobIDMaker(chainData));
         
         jobDefinition.PopulateBaseJobDefinition(startStation, timeLimit, price, chainData, licenses);
         
@@ -259,6 +331,24 @@ public static class SelfShunt
         controller.FinalizeSetupAndGenerateFirstJob(false);
 
     }
+
+    private static float CalculatePayment(CargoType_v2 v2Cargo, float distance, int carCount)
+    {
+        float distancePriceScale = distance * 0.00005f;
+
+        int randomAdditive = 0;
+        
+        for(int i = 0; i<carCount; i++)randomAdditive += rand.Next(0, 1000);
+        
+        float pricePerCargo = ((v2Cargo.fullDamagePrice / 5f) + (v2Cargo.environmentDamagePrice / 2f) + (v2Cargo.massPerUnit / 2f))/5 + v2Cargo.sensitivityPaymentModifier;
+        float jobScale = distancePriceScale * carCount;
+        
+        float finalPayment = randomAdditive + (jobScale * pricePerCargo);
+
+        return finalPayment * Globals.G.GameParams.JobPaymentModifier;
+
+    }
+
     public static Job MakeDirectJob(List<Car> carsToTransport, StationsChainData chainData, WarehouseMachine unloadMachine, WarehouseMachine loadMachine, CargoType transportedCargo, float timeLimit, float initialWage, string forcedJobId, JobLicenses requiredLicenses, List<Car_data> displayCars, CargoType cargoType)
     {
         List<Task> tasks = new List<Task>();
@@ -315,6 +405,33 @@ public static class SelfShunt
         endStationController = null!;
         unloadMachine = null!;
         return CargoType.None;
+    }
+
+    public static JobLicenses GetLicenses(CargoType_v2 v2Cargo, int carCount)
+    {
+        JobLicenses licenses = JobLicenses.Basic;
+        foreach (JobLicenseType_v2 v2 in v2Cargo.requiredJobLicenses)
+        {
+            licenses += (int)v2.v1;
+        }
+        if (carCount <= 2) licenses = ((int)JobLicenses.Shunting + licenses);
+        else if (carCount > 5) licenses = ((int)JobLicenses.TrainLength2 + licenses);
+        else if (carCount > 10) licenses = ((int)JobLicenses.TrainLength1 + licenses);
+
+        return licenses;
+    }
+
+    private static string JobIDMaker(StationsChainData data)
+    {
+        HashSet<string> existingIDs = AccessTools.Field(typeof(IdGenerator) ,"existingJobIds").GetValue(IdGenerator.Instance) as HashSet<string>;
+        string newID = "";
+        int num = 0;
+        do
+        {
+            newID = $"{data.chainOriginYardId}-{data.chainDestinationYardId}-{num:D2}";
+            num++;
+        }while(existingIDs.Contains(newID)||StaticDirectJobDefinition.jobDefinitions.ContainsKey(newID));
+        return newID;
     }
 
 }

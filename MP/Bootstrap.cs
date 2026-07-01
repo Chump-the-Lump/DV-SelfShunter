@@ -21,5 +21,9 @@ public static class Bootstrap
         // Apply any extra patches required for multiplayer that can't be applied in the your core mod
         Harmony harmony = new("DoubleTrack.MP");
         harmony.PatchAll();
+
+
+        MultiplayerAPI.ServerStarted += JobPacketSetup.InitServer;
+        MultiplayerAPI.ClientStarted += JobPacketSetup.InitClient;
     }
 }
