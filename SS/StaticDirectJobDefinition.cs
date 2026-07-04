@@ -23,12 +23,12 @@ public class StaticDirectJobDefinition : StaticJobDefinition
     protected override void GenerateJob(Station jobOriginStation, float timeLimit = 0, float initialWage = 0, string forcedJobId = null,
         JobLicenses requiredLicenses = JobLicenses.Basic)
     {
-        job = SelfShunt.MakeDirectJob(carsToTransport, chainData, unloadMachine, loadMachine, transportedCargo, timeLimit, initialWage, forcedJobId, requiredLicenses, displayCars, transportedCargo);
-        if (!jobDefinitions.TryAdd(job.ID, this))
+        if (!jobDefinitions.TryAdd(forcedJobId, this))
         {
-            Debug.LogWarning($"Duplicate job with ID {job.ID}");
+            Debug.LogWarning($"Duplicate job with ID {forcedJobId}");
         }
         onJobCreated.Invoke(this);
+        job = SelfShunt.MakeDirectJob(carsToTransport, chainData, unloadMachine, loadMachine, transportedCargo, timeLimit, initialWage, forcedJobId, requiredLicenses, displayCars, transportedCargo);
     }
 
     private void RemoveJobFromList(Job remJob)

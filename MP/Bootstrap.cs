@@ -14,16 +14,12 @@ public static class Bootstrap
         Debug.Log("Bootstrapping SelfShunt.MP.");
         if (!MultiplayerAPI.IsMultiplayerLoaded)
             return;
-
         // Set compatibility state for your mod
         MultiplayerAPI.Instance.SetModCompatibility(Main.SelfShuntModEntry.Info.Id, MultiplayerCompatibility.All);
-
-        // Apply any extra patches required for multiplayer that can't be applied in the your core mod
-        Harmony harmony = new("DoubleTrack.MP");
-        harmony.PatchAll();
 
 
         MultiplayerAPI.ServerStarted += JobPacketSetup.InitServer;
         MultiplayerAPI.ClientStarted += JobPacketSetup.InitClient;
+        MultiplayerAPI.ServerStopped += JobPacketSetup.StopServer;
     }
 }

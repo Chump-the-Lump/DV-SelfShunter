@@ -10,11 +10,20 @@ public class Main
     public static bool Load(UnityModManager.ModEntry entry)
     {
         SelfShuntModEntry = entry;
+        SelfShuntModEntry.OnLateUpdate += InitializeShim;
+        
         var harmony = new Harmony(entry.Info.Id);
         harmony.PatchAll();
         
-        MultiplayerShim.Initialize(entry);
-        
         return true;
+    }
+
+    public static void InitializeShim(UnityModManager.ModEntry entry, float f)
+    {
+        // Remove listener for LateUpdate()
+        SelfShuntModEntry.OnLateUpdate -= InitializeShim;
+
+        // Initialise shim
+        MultiplayerShim.Initialize(entry);
     }
 }
