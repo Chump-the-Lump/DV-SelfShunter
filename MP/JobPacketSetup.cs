@@ -19,12 +19,6 @@ public static class JobPacketSetup
         server.OnPlayerConnected += SendAllJobsToClient;
     }
     
-    public static void StopServer()
-    {
-        StaticDirectJobDefinition.onJobCreated.RemoveListener((jobDef)=>MPAPI.MultiplayerAPI.Server.SendPacketToAll(JobPacketConverter.CreateDHOverviewPacket(jobDef)));
-       MPAPI.MultiplayerAPI.Server.OnPlayerConnected -= SendAllJobsToClient;
-    }
-    
     private static void SendAllJobsToClient(IPlayer client)
     {
         Debug.Log("Sending all jobs to new client "+client.DisplayName);

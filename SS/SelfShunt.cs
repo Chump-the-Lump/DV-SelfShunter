@@ -28,7 +28,7 @@ public static class SelfShunt
         generatedJob.ExpireJob();
         foreach (Car car in __instance.carsForJobChain)
         {
-            car.UnloadCargo(car.LoadedCargoAmount, car.CurrentCargoTypeInCar);
+            if(car.LoadedCargoAmount>0) car.UnloadCargo(car.LoadedCargoAmount, car.CurrentCargoTypeInCar);
         }
     }
 
@@ -303,7 +303,7 @@ public static class SelfShunt
         float price = CalculatePayment(v2Cargo, distance, carData.Count);
         
         if (timeScale < 0.5f) timeScale = -1f;
-        else price *= (timeScale+0.5f)/4f + 0.75f;
+        else price *= 1/(timeScale+0.5f) + 0.5f;
         
         float timeLimit = (int)((600f + (distance/3f)) * timeScale);
         timeLimit *= Globals.G.GameParams.JobBonusTimeLimitModifier;

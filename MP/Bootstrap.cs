@@ -20,6 +20,5 @@ public static class Bootstrap
 
         MultiplayerAPI.ServerStarted += JobPacketSetup.InitServer;
         MultiplayerAPI.ClientStarted += JobPacketSetup.InitClient;
-        MultiplayerAPI.ServerStopped += JobPacketSetup.StopServer;
     }
 }

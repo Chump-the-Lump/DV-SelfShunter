@@ -163,9 +163,9 @@ public class JobMechanics
 
             }
             
-            //Prevent car softlock
+            //Prevent car softlock and ensure cars are cleaned out
             task.Job.JobAbandoned += new Action<Job>(RemoveAllCargo);
-
+            task.Job.JobCompleted += new Action<Job>(RemoveAllCargo);
 
         }
     }
@@ -212,7 +212,7 @@ public class JobMechanics
         
         foreach (Car c in task.cars)
         {
-            c.UnloadCargo(c.LoadedCargoAmount,c.CurrentCargoTypeInCar);
+            if(c.LoadedCargoAmount > 0)c.UnloadCargo(c.LoadedCargoAmount,c.CurrentCargoTypeInCar);
             c.TrainCar().UpdateJobIdOnCarPlates("");
         }
     }
