@@ -18,18 +18,31 @@ public static class SelfShunt
 {
     private static readonly Color DIRECT_HAUL_COLOR = new Color(1, 0.5f, 0.2f);
     private const string DIRECT_HAUL_NAME = "Direct Haul";
+    private static HashSet<string> DisabledStations = new HashSet<string>();
     
     [HarmonyPatch(typeof(JobChainController), "OnJobGenerated")]
     [HarmonyPostfix]
-    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob,
-        JobChainController __instance)
+    public static void OnJobGenerated_Postfix(StaticJobDefinition jobDefinition, DV.Logic.Job.Job generatedJob, JobChainController __instance)
     {
-        if (generatedJob.jobType == JobType.ComplexTransport) return;
-        generatedJob.ExpireJob();
-        foreach (Car car in __instance.carsForJobChain)
+        if (!(generatedJob.jobType is JobType.ShuntingLoad or JobType.ShuntingUnload or JobType.EmptyHaul or JobType.Transport)) return;
+        Expire(generatedJob, __instance.carsForJobChain);
+        
+        static void Expire(Job generatedJob, List<Car> cars)
         {
-            if(car.LoadedCargoAmount>0) car.UnloadCargo(car.LoadedCargoAmount, car.CurrentCargoTypeInCar);
+            Debug.Log("Job Removed "+generatedJob.ID);
+            generatedJob.ExpireJob();
+            foreach (Car car in cars)
+            {
+                if(car.LoadedCargoAmount>0) car.UnloadCargo(car.LoadedCargoAmount, car.CurrentCargoTypeInCar);
+            }
         }
+    }
+
+    [HarmonyPatch(typeof(StationProceduralJobsRuleset), "Awake")]
+    [HarmonyPrefix]
+    private static void Awake_Patch(StationProceduralJobsRuleset __instance)
+    {
+        __instance.jobsCapacity = 100;
     }
 
     [HarmonyPatch(typeof(StationJobGenerationRange), nameof(StationJobGenerationRange.IsPlayerInJobGenerationZone))]
@@ -37,16 +50,18 @@ public static class SelfShunt
     private static void OnStationLoad(StationJobGenerationRange __instance, ref bool __result)
     {
         if (!MultiplayerShim.IsHost) return;
-        if (__result) UpdateJobSpawns(__instance.GetComponent<StationController>().logicStation);
+        if (__result) UpdateJobSpawns(__instance.GetComponent<StationController>());
     }
 
-    private static void UpdateJobSpawns(Station station)
+    private static void UpdateJobSpawns(StationController stationController)
     {
-        //Debug.Log("Station " + station.ID + " has " + station.availableJobs.Count + " jobs for " + station.yard.GetAllYardTracks().Count() + " tracks."+JobSpawningBusy);
-        if (station.availableJobs.Count < station.yard.GetAllYardTracks().Count() * 2)
+        Station station = stationController.logicStation;
+        if(DisabledStations.Contains(station.ID))return;
+        int trackCount = station.yard.GetAllYardTracks().Count();
+        int jobLimit = trackCount + (int)(Math.Sqrt(10 * trackCount)+1);
+        if (station.availableJobs.Count < jobLimit)
         {
             CreateDirectJobChain(station);
-
         }
     }
     
@@ -275,6 +290,7 @@ public static class SelfShunt
         StationController startStationController = StationController.GetStationByYardID(startStation.ID);
         CargoType cargoType = PickCargoAndDestination(startStationController, out WarehouseMachine loadMachine, out StationController endStationController, out WarehouseMachine unloadMachine);
             
+        
         if(cargoType == CargoType.None)return;
         Station endStation = endStationController.logicStation;
 
@@ -288,14 +304,24 @@ public static class SelfShunt
         List<Car_data> carData = new List<Car_data>();
 
         int i = 0;
+        int j = -1;
         while (true)
         {
             TrainCarType_v2 shownCar = posibleCarTypes[i % posibleCarTypes.Count];
-            TrainCarLivery shownLivery = shownCar.liveries[i % shownCar.liveries.Count];
+            if (i % posibleCarTypes.Count == 0) j++;
+            TrainCarLivery shownLivery = shownCar.liveries[j % shownCar.liveries.Count];
             Car_data data = new Car_data("?",  shownLivery, false, false, 0f,0f, 0f);
             carData.Add(data);
-            if(rand.Next(0,3) ==0 || i > 10) break;
+            if(rand.Next(0,3) == 0) break;
             i++;
+        }
+        
+        //prevent jobs from being to long for there track
+        while(true)
+        {
+            float len = GetAproxJobLength(carData)+10;//10 is just a random safety margin
+            if(len<loadMachine.WarehouseTrack.length&&len<unloadMachine.WarehouseTrack.length)break;
+            carData.RemoveAt(0);
         }
 
         float timeScale = UnityEngine.Random.Range(0f, 2f);
@@ -375,10 +401,11 @@ public static class SelfShunt
 
             if (cargoTypes.Count == 0)
             {
-                Debug.LogError("No cargo exists at station "+startStationController.logicStation.ID+"! This should not happen and will break things!");
                 loadMachine = null!;
                 endStationController = null!;
                 unloadMachine = null!;
+
+                DisabledStations.Add(startStationController.logicStation.ID);
                 return CargoType.None;
             }
 
@@ -399,6 +426,8 @@ public static class SelfShunt
             CargoType selectedCargo = selectedCargoGroup.cargoTypes[rand.Next(0, selectedCargoGroup.cargoTypes.Count)];
 
             if (selectedCargo.ToV2().loadableCarTypes.Length != 0)return selectedCargo;
+
+            i++;
         }
         Debug.LogError("No cars exist for any cargo at station "+startStationController.logicStation.ID+"! This should not happen and will break things!");
         loadMachine = null!;
@@ -434,4 +463,14 @@ public static class SelfShunt
         return newID;
     }
 
+    private static float GetAproxJobLength(List<Car_data> data)
+    {
+        float total = 0;
+        foreach (Car_data cd in data)
+        {
+            total += cd.type.prefab.GetComponent<TrainCar>().InterCouplerDistance;
+        }
+
+        return total;
+    }
 }

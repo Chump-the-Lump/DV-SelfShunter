@@ -1,6 +1,8 @@
-﻿using DV;
+﻿using Bolt;
+using DV;
 using DV.Booklets;
 using DV.Booklets.Rendered;
+using DV.CabControls.Spec;
 using DV.Logic.Job;
 using DV.RenderTextureSystem.BookletRender;
 using DV.ServicePenalty;
@@ -19,6 +21,8 @@ namespace SelfShunt;
 [HarmonyPatch]
 public class JobMechanics
 {
+    
+    private static Dictionary<string, StationController> trackToStationController = new Dictionary<string, StationController>();
     
     [HarmonyPatch(typeof(WarehouseTask), nameof(WarehouseTask.UpdateTaskState))]
     [HarmonyPrefix]
@@ -58,8 +62,7 @@ public class JobMechanics
         List<WarehouseMachine.WarehouseLoadUnloadDataPerJob> pendingJobsData = __instance.warehouseMachine.GetCurrentLoadUnloadData(WarehouseTaskType.Loading);
         foreach (WarehouseMachine.WarehouseLoadUnloadDataPerJob jobData in pendingJobsData)
         {
-            if (jobData.tasksAvailableToProcess[0].cars.Count != 0)continue;
-            
+            if (jobData?.tasksAvailableToProcess == null || jobData?.tasksAvailableToProcess[0]?.cars?.Count != 0)continue;
             
             StaticDirectJobDefinition.jobDefinitions.TryGetValue(jobData.id, out StaticDirectJobDefinition sjd);
             if(sjd == null)continue;
@@ -100,7 +103,6 @@ public class JobMechanics
                 foreach (Car c in validCars)
                 {
                     if(c.playerSpawnedCar) MakeCarNonPlayerSpawned(c);
-                    Debug.Log("Player Spawned "+c.playerSpawnedCar);
                     warehouseTask.cars.Add(c);
                     totalCargoSpace += c.capacity;
                     c.TrainCar().UpdateJobIdOnCarPlates(warehouseTask.Job.ID);
@@ -216,13 +218,89 @@ public class JobMechanics
             c.TrainCar().UpdateJobIdOnCarPlates("");
         }
     }
-    
-    
+
+
+    private static List<Job> deleteList = new List<Job>();
     [HarmonyPatch(typeof(Job), nameof(Job.ExpireJob))]
     [HarmonyPrefix]
     public static bool ExpireJob_Patch(Job __instance)
     {
         if (__instance.jobType != JobType.ComplexTransport) return true;
-        return UnityModManager.FindMod("SelfShunt")?.Active != true;
+        if (deleteList.Contains(__instance))
+        {
+            deleteList.Remove(__instance);
+            return true;
+        }
+
+        //bullshit to stop PJ from snapping my fucking jobs
+        if (__instance.tasks[0] is WarehouseTask task)
+        {
+            if (IsTrackLoaded(task.warehouseMachine.WarehouseTrack))
+            {
+                if (trackToStationController.TryGetValue(task.warehouseMachine.WarehouseTrack.ID.FullID,
+                        out StationController carStation))
+                {
+                    CheckJobExistsLater(__instance, carStation );
+                    return false;
+                }
+            }
+        }
+
+        return false;
+
+        static async void CheckJobExistsLater(Job job, StationController carStation)
+        {
+            await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(1));
+            if(job.State!= JobState.Available)return;
+            deleteList.Add(job);
+            job.ExpireJob();
+        }
+    }
+
+    [HarmonyPatch(typeof(UnusedTrainCarDeleter), "AreDeleteConditionsFulfilled")]
+    [HarmonyPrefix]
+    public static bool AreDeleteConditionsFulfilled_Prefix(TrainCar trainCar, ref bool __result)
+    {
+        __result = false;
+
+        return !IsTrackLoaded(trainCar.logicCar.CurrentTrack);
+    }
+
+    static void PopulateTracks()
+    {
+        foreach (StationController station in StationController.allStations)
+        {
+            foreach (RailTrack track in station.AllStationTracks)
+            {
+                trackToStationController.Add(track.LogicTrack().ID.FullID,station);
+            }
+        }
+    }
+
+    private static bool IsTrackLoaded(Track track)
+    {
+        if (trackToStationController.Count == 0)PopulateTracks();
+        
+        if(track?.ID?.FullID == null)return false;
+        bool? playerInStation = false;
+        if(trackToStationController.TryGetValue(track.ID.FullID, out StationController carStation)) playerInStation = AccessTools.Field(typeof(StationController), "playerEnteredJobGenerationZone").GetValue(carStation) as bool?;
+        return (playerInStation == true);
+    }
+
+    private static bool DoseOverviewExist(Job job, StationController station)
+    {
+        List<JobOverview>? jobOverviews = AccessTools.Field(typeof(StationController), "spawnedJobOverviews").GetValue(station) as List<JobOverview>;
+        if(!(jobOverviews?.Count > 0)) return false;
+        foreach (JobOverview overview in jobOverviews)
+        {
+            if (overview.job == job)
+            {
+                ItemDisabler itemDisabler = overview.GetComponent<DV.CabControls.ItemBase>().itemDisabler;
+                bool inTrash = (bool)AccessTools.Field(typeof(ItemDisabler), "inDumpster").GetValue(itemDisabler);
+                return !inTrash;
+            }
+        }
+
+        return false;
     }
 }
