@@ -11,11 +11,14 @@ public static class JobPacketSetup
     {
         if(MPAPI.MultiplayerAPI.Instance.IsHost)return;
         MPAPI.MultiplayerAPI.Client.RegisterPacket<DHOverviewPacket>(JobPacketConverter.OnDHOverviewPacket);
+        MPAPI.MultiplayerAPI.Client.RegisterPacket<DHJobUpdatePacket>(JobPacketConverter.OnDHJobUpdatePacket);
+        
     }
 
     public static void InitServer(IServer server)
     {
-        StaticDirectJobDefinition.onJobCreated.AddListener((jobDef)=>MPAPI.MultiplayerAPI.Server.SendPacketToAll(JobPacketConverter.CreateDHOverviewPacket(jobDef)));
+        StaticDirectJobDefinition.onJobCreated.AddListener((jobDef)=>MPAPI.MultiplayerAPI.Server.SendPacketToAll(JobPacketConverter.CreateDHOverviewPacket(jobDef),excludeSelf: true));
+        JobMechanics.jobUpdateEvent.AddListener((job, cars)=>MPAPI.MultiplayerAPI.Server.SendPacketToAll(JobPacketConverter.CreateDHJobUpdatePacket(job, cars),excludeSelf: true));
         server.OnPlayerConnected += SendAllJobsToClient;
     }
     
@@ -27,8 +30,6 @@ public static class JobPacketSetup
             DHOverviewPacket packet = JobPacketConverter.CreateDHOverviewPacket(job);
             MPAPI.MultiplayerAPI.Server.SendPacketToPlayer(packet, client);
         }
-        
-        return;
     }
 
     public class DummyComponent : MonoBehaviour {}
@@ -43,5 +44,11 @@ public static class JobPacketSetup
         public float TimeLimit {get; set;}
         public float Price {get; set;}
         public string ID {get; set;}
+    }
+
+    public class DHJobUpdatePacket : MPAPI.Interfaces.Packets.IPacket
+    {
+        public string JobID {get; set;}
+        public string[] CarIDs {get; set;}
     }
 }

@@ -33,6 +33,7 @@ public class StaticDirectJobDefinition : StaticJobDefinition
 
     private void RemoveJobFromList(Job remJob)
     {
+        if(remJob?.ID == null)return;
         jobDefinitions.Remove(remJob.ID);
     }
 

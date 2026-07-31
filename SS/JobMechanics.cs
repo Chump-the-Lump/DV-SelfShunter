@@ -12,6 +12,7 @@ using DV.Utils;
 using HarmonyLib;
 using Ludiq;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityModManagerNet;
 using Object = System.Object;
 using Task = DV.Logic.Job.Task;
@@ -23,6 +24,8 @@ public class JobMechanics
 {
     
     private static Dictionary<string, StationController> trackToStationController = new Dictionary<string, StationController>();
+    public class JobUpdateEvent : UnityEvent<List<Car>, Job>{}
+    public static JobUpdateEvent jobUpdateEvent = new JobUpdateEvent();
     
     [HarmonyPatch(typeof(WarehouseTask), nameof(WarehouseTask.UpdateTaskState))]
     [HarmonyPrefix]
@@ -89,87 +92,41 @@ public class JobMechanics
                 if(car.LoadedCargoAmount!=0)continue;
                     
                 validCars.Add(car);
-                
             }
-
             //update cars
             if (validCars.Count != carData.Count)continue;
-            
-            foreach (Task t in task.Job.tasks)if (t is WarehouseTask warehouseTask)
-            {
-                warehouseTask.cars.Clear();
-                
-                float totalCargoSpace = 0f;
-                foreach (Car c in validCars)
-                {
-                    if(c.playerSpawnedCar) MakeCarNonPlayerSpawned(c);
-                    warehouseTask.cars.Add(c);
-                    totalCargoSpace += c.capacity;
-                    c.TrainCar().UpdateJobIdOnCarPlates(warehouseTask.Job.ID);
-                }
-                AccessTools.Field(typeof(WarehouseTask), "cargoAmount").SetValue(warehouseTask, totalCargoSpace);
-            }
-            (AccessTools.Field(typeof(JobsManager), "jobToJobCars").GetValue(JobsManager.Instance) as Dictionary<Job, HashSet<Car>>)[task.Job] = new HashSet<Car>((IEnumerable<Car>)validCars);
-            
-            //set debt
-            JobDebtController.Instance.RegisterGeneratedJob(task.Job, validCars);
-            OnJobTaken(task.Job,false);
-            
-            //fix book
-            foreach (JobBooklet book in JobBooklet.allExistingJobBooklets.ToArray())
-            {
-                if (book.job != task.Job)continue;
-                
-                PageBook pb = book.GetComponent<PageBook>();
-                GameObject tempBook = BookletCreator_Job.Create(new Job_data(task.Job), book.transform.position, book.transform.rotation).gameObject;
-                PageBook tempPb = tempBook.GetComponent<PageBook>();
-                
-                tempPb.PageBookGenerated += () =>
-                {
-                    pb.pageTextures = tempPb.pageTextures;
-                    
-                    for (int i = 0; i < tempPb.pages.Count; i++)
-                    {
-                        Transform newPageTransform = tempPb.pages[i].transform.Find("Paper");
-                        
-                        UnityEngine.Object.Destroy(pb.pages[i].renderer.material);
-                        UnityEngine.Object.Destroy(pb.pages[i].pageMaterial);
-                        
-                        pb.pages[i].renderer.material = tempPb.pages[i].renderer.material;
-                        pb.pages[i].pageMaterial = tempPb.pages[i].pageMaterial;
-
-                        tempPb.pages[i].renderer.material = null;
-                        tempPb.pages[i].pageMaterial = null;
-                        
-                        UnityEngine.Object.Destroy(newPageTransform.gameObject);
-                    }
-
-                    RenderedTexturesBooklet tempRendTextures = tempBook.GetComponent<RenderedTexturesBooklet>();
-                    RenderedTexturesBooklet newRendTextures = book.GetComponent<RenderedTexturesBooklet>();
-                    
-                    object newTextures = AccessTools.Field(typeof(RenderedTexturesBooklet), "textures").GetValue(tempRendTextures);
-                    object oldTextures = AccessTools.Field(typeof(RenderedTexturesBooklet), "textures").GetValue(newRendTextures);
-                    AccessTools.Field(typeof(RenderedTexturesBooklet), "textures").SetValue(newRendTextures, newTextures);
-                    AccessTools.Field(typeof(RenderedTexturesBooklet), "textures").SetValue(tempRendTextures, oldTextures);
-                    
-                    UnityEngine.Object.Destroy(pb.coverMaterial);
-                    pb.coverMaterial = tempPb.coverMaterial;
-                    tempPb.coverMaterial = null;
-                    
-                    
-                    //tempBook.transform.SetParent(book.transform);
-                    //tempBook.transform.position = new Vector3(tempBook.transform.position.x,tempBook.transform.position.y-2,tempBook.transform.position.z);
-                    UnityEngine.Object.Destroy(tempBook);
-                };
-                
-
-            }
-            
-            //Prevent car softlock and ensure cars are cleaned out
-            task.Job.JobAbandoned += new Action<Job>(RemoveAllCargo);
-            task.Job.JobCompleted += new Action<Job>(RemoveAllCargo);
-
+            AddCarsToJob(validCars, task.Job);
         }
+    }
+
+    public static void AddCarsToJob(List<Car> validCars, Job job)
+    {
+        if(MultiplayerShim.IsHost)jobUpdateEvent.Invoke(validCars, job);
+        foreach (Task t in job.tasks)if (t is WarehouseTask warehouseTask)
+        {
+            warehouseTask.cars.Clear();
+                
+            float totalCargoSpace = 0f;
+            foreach (Car c in validCars)
+            {
+                if(c.playerSpawnedCar) MakeCarNonPlayerSpawned(c);
+                warehouseTask.cars.Add(c);
+                totalCargoSpace += c.capacity;
+                c.TrainCar().UpdateJobIdOnCarPlates(warehouseTask.Job.ID);
+            }
+            AccessTools.Field(typeof(WarehouseTask), "cargoAmount").SetValue(warehouseTask, totalCargoSpace);
+        }
+        (AccessTools.Field(typeof(JobsManager), "jobToJobCars").GetValue(JobsManager.Instance) as Dictionary<Job, HashSet<Car>>)[job] = new HashSet<Car>((IEnumerable<Car>)validCars);
+            
+        //set debt
+        JobDebtController.Instance.RegisterGeneratedJob(job, validCars);
+        OnJobTaken(job,false);
+            
+        BookletMaker.UpdateBook(job);
+            
+        //Prevent car softlock and ensure cars are cleaned out
+        job.JobAbandoned += new Action<Job>(RemoveAllCargo);
+        job.JobCompleted += new Action<Job>(RemoveAllCargo);
     }
     
     private delegate void OnJobTakenDelegate(DV.Logic.Job.Job takenJob, bool jobLoadedFromSavegame);
@@ -220,6 +177,7 @@ public class JobMechanics
     }
 
 
+    /*
     private static List<Job> deleteList = new List<Job>();
     [HarmonyPatch(typeof(Job), nameof(Job.ExpireJob))]
     [HarmonyPrefix]
@@ -255,7 +213,7 @@ public class JobMechanics
             deleteList.Add(job);
             job.ExpireJob();
         }
-    }
+    }*/
 
     [HarmonyPatch(typeof(UnusedTrainCarDeleter), "AreDeleteConditionsFulfilled")]
     [HarmonyPrefix]
@@ -263,7 +221,7 @@ public class JobMechanics
     {
         __result = false;
 
-        return !IsTrackLoaded(trainCar.logicCar.CurrentTrack);
+        return false;
     }
 
     static void PopulateTracks()
@@ -277,7 +235,7 @@ public class JobMechanics
         }
     }
 
-    private static bool IsTrackLoaded(Track track)
+    public static bool IsTrackLoaded(Track track)
     {
         if (trackToStationController.Count == 0)PopulateTracks();
         

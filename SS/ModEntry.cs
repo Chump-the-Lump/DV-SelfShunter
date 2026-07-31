@@ -14,6 +14,8 @@ public class Main
         
         var harmony = new Harmony(entry.Info.Id);
         harmony.PatchAll();
+
+        SSCarSpawner.StartOptimizeTimer();
         
         return true;
     }

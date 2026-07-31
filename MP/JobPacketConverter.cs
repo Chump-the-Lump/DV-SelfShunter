@@ -75,4 +75,54 @@ public static class JobPacketConverter
         Debug.Log("Sending "+packet.ID+" cars "+packet.CargoCount);
         return packet;
     }
+
+    public static JobPacketSetup.DHJobUpdatePacket CreateDHJobUpdatePacket(List<Car> cars, Job job)
+    {
+        JobPacketSetup.DHJobUpdatePacket packet = new JobPacketSetup.DHJobUpdatePacket();
+        
+        packet.JobID = job.ID;
+        
+        string[] carIDs = new string[cars.Count];
+        for (int i = 0; i < carIDs.Length; i++)carIDs[i] = cars[i].ID;
+        packet.CarIDs = carIDs;
+        
+        Debug.Log("Sending update for "+packet.JobID+" with car count of "+packet.CarIDs.Length);
+        return packet;
+    }
+    public static void OnDHJobUpdatePacket(JobPacketSetup.DHJobUpdatePacket packet)
+    {
+        Debug.Log("Received update for "+packet.JobID+" with car count of "+packet.CarIDs.Length);
+        
+        Job job = null;
+        
+        foreach (Job j in JobsManager.Instance.currentJobs)
+        {
+            if (j.ID == packet.JobID) job = j;
+        }
+
+        if (job == null)
+        {
+            Debug.LogError("Job "+packet.JobID+" not found!");
+            return;
+        }
+            
+        List<Car> cars = new List<Car>();
+        foreach (string carID in packet.CarIDs)
+        {
+            foreach (TrainCar gameCar in CarSpawner.Instance.AllCars)
+            {
+                if (carID == gameCar.ID)
+                {
+                    cars.Add(gameCar.logicCar);
+                    break;
+                }
+            }
+        }
+        if (cars.Count != packet.CarIDs.Length)
+        {
+            Debug.LogError("Could not find all cars for job "+packet.JobID+"!");
+            return;
+        }
+        JobMechanics.AddCarsToJob(cars, job);
+    }
 }
