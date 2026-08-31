@@ -1,4 +1,8 @@
-﻿using HarmonyLib;
+﻿using DV;
+using DV.Booklets;
+using DV.ThingTypes;
+using DV.ThingTypes.TransitionHelpers;
+using HarmonyLib;
 using UnityEngine.SceneManagement;
 using UnityModManagerNet;
 
@@ -19,7 +23,6 @@ public class Main
         
         return true;
     }
-
     public static void InitializeShim(UnityModManager.ModEntry entry, float f)
     {
         // Remove listener for LateUpdate()
